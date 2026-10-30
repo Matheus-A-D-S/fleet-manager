@@ -1,0 +1,80 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: fleet
+      POSTGRES_USER: fleet
+      POSTGRES_PASSWORD: fleet
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fleet -d fleet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+
+  mailhog:            # caixa de e-mail de desenvolvimento: http://localhost:8025
+    image: mailhog/mailhog
+    ports:
+      - "8025:8025"
+
+  backend:
+    build: ./backend
+    command: >
+      sh -c "python manage.py makemigrations accounts fleet logistics alerts audit --noinput &&
+             python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+    env_file: .env
+    environment: &backend-env
+      POSTGRES_HOST: db
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CHANNEL_REDIS_URL: redis://redis:6379/1
+      EMAIL_HOST: mailhog
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  worker:
+    build: ./backend
+    command: celery -A config worker -l info
+    env_file: .env
+    environment: *backend-env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - backend
+
+  beat:
+    build: ./backend
+    command: celery -A config beat -l info
+    env_file: .env
+    environment: *backend-env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - backend
+
+  frontend:
+    build: ./frontend
+    command: npm run dev
+    environment:
+      VITE_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

@@ -1,0 +1,19 @@
+# ---- estágio 1: compila as dependências em wheels ----
+FROM python:3.12-slim AS builder
+WORKDIR /w
+COPY requirements.txt .
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+# ---- estágio 2: imagem final enxuta, sem root ----
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+RUN useradd --create-home --uid 1000 app
+WORKDIR /app
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* && rm -rf /wheels
+COPY --chown=app:app . .
+RUN mkdir -p /app/staticfiles && chown app:app /app/staticfiles
+USER app
+EXPOSE 8000
+# Daphne atende HTTP e WebSocket no mesmo processo (ASGI)
+CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "config.asgi:application"]
