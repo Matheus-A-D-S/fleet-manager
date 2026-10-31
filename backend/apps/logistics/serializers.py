@@ -1,12 +1,14 @@
 from django.utils import timezone
 from rest_framework import serializers
 
-from apps.fleet.models import Vehicle
+from apps.core.tenancy import TenantSerializerMixin
+from apps.fleet.models import Driver, Vehicle
 
 from .models import LocationPing, Trip
 
 
-class TripSerializer(serializers.ModelSerializer):
+class TripSerializer(TenantSerializerMixin, serializers.ModelSerializer):
+    tenant_related = {"vehicle": Vehicle, "driver": Driver}
     vehicle_plate = serializers.CharField(source="vehicle.plate", read_only=True)
     driver_name = serializers.CharField(source="driver.full_name", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
@@ -14,7 +16,7 @@ class TripSerializer(serializers.ModelSerializer):
     class Meta:
         model = Trip
         fields = "__all__"
-        read_only_fields = ["code", "status", "started_at", "finished_at", "created_by"]
+        read_only_fields = ["organization", "code", "status", "started_at", "finished_at", "created_by"]
 
     def validate(self, attrs):
         start = attrs.get("scheduled_start", getattr(self.instance, "scheduled_start", None))
@@ -35,7 +37,9 @@ class TripSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class LocationPingSerializer(serializers.ModelSerializer):
+class LocationPingSerializer(TenantSerializerMixin, serializers.ModelSerializer):
+    tenant_related = {"vehicle": Vehicle, "trip": Trip}
+
     class Meta:
         model = LocationPing
         fields = ["id", "vehicle", "trip", "latitude", "longitude", "speed_kmh", "heading", "recorded_at"]

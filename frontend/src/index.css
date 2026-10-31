@@ -115,3 +115,5 @@ td.actions { white-space: nowrap; display: flex; gap: 14px; justify-content: fle
 
 .conn { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; }
 .conn .dot { width: 10px; height: 10px; background: var(--c); border-radius: 50%; }
+
+.org { color: #9fb3ae; font-size: 0.85rem; margin: 2px 0 0 20px; }

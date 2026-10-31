@@ -3,7 +3,9 @@ from django.contrib.auth.password_validation import validate_password
 from django.core import signing
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from rest_framework import generics, status
+from rest_framework import generics, mixins, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,17 +13,23 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .permissions import IsManager
+from apps.audit.models import AuditLog
+from apps.audit.services import diff, record
+from apps.core.tenancy import TenantQuerysetMixin
+
+from .permissions import IsManager, IsOrgAdmin
 from .serializers import (
     EmailSerializer,
     EmailTokenObtainPairSerializer,
     LogoutSerializer,
     PasswordResetConfirmSerializer,
     RegisterSerializer,
+    UserInviteSerializer,
     UserSerializer,
+    UserUpdateSerializer,
     VerifyEmailSerializer,
 )
-from .tasks import send_password_reset_email, send_verification_email
+from .tasks import send_invitation_email, send_password_reset_email, send_verification_email
 from .tokens import get_user_from_reset, read_verification_token
 
 User = get_user_model()
@@ -119,17 +127,61 @@ class LogoutView(APIView):
 
 
 class MeView(generics.RetrieveAPIView):
+    permission_classes = [IsAuthenticated]  # superusuário da plataforma (sem empresa) também consulta o próprio perfil
     serializer_class = UserSerializer
 
     def get_object(self):
         return self.request.user
 
 
-class UserListView(generics.ListAPIView):
-    """Lista usuários (para vincular motoristas). Somente gestores/admin."""
+def _user_state(user):
+    return {"first_name": user.first_name, "last_name": user.last_name, "role": user.role, "is_active": user.is_active}
 
-    permission_classes = [IsManager]
-    serializer_class = UserSerializer
-    queryset = User.objects.order_by("email")
-    filterset_fields = ["role"]
+
+class UserViewSet(
+    TenantQuerysetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Equipe da empresa. Gestores consultam; só o administrador convida e edita. Não há exclusão: desative."""
+
+    queryset = User.objects.select_related("organization")
+    filterset_fields = ["role", "is_active"]
     search_fields = ["email", "first_name", "last_name"]
+    ordering_fields = ["email", "first_name"]
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [IsManager()]
+        return [IsOrgAdmin()]
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return UserInviteSerializer
+        if self.action in ("update", "partial_update"):
+            return UserUpdateSerializer
+        return UserSerializer
+
+    def perform_create(self, serializer):
+        user = serializer.save(organization=self.request.user.organization)
+        # Não usamos snapshot() aqui: o modelo de usuário contém o hash da senha.
+        record(self.request, AuditLog.Action.CREATE, user, {"email": user.email, **_user_state(user)})
+        inviter_id = self.request.user.pk
+        transaction.on_commit(lambda: send_invitation_email.delay(user.pk, inviter_id))
+
+    def perform_update(self, serializer):
+        before = _user_state(serializer.instance)
+        user = serializer.save()
+        record(self.request, AuditLog.Action.UPDATE, user, diff(before, _user_state(user)))
+
+    @action(detail=True, methods=["post"], url_path="resend-invite")
+    def resend_invite(self, request, pk=None):
+        user = self.get_object()
+        if user.is_email_verified or not user.is_active:
+            raise ValidationError({"detail": "Este usuário já ativou a conta ou está desativado."})
+        send_invitation_email.delay(user.pk, request.user.pk)
+        return Response({"detail": "Convite reenviado."})

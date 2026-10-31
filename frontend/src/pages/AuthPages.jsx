@@ -60,7 +60,7 @@ export function Login() {
 }
 
 export function Register() {
-  const [f, setF] = useState({ first_name: "", last_name: "", email: "", password: "" });
+  const [f, setF] = useState({ company_name: "", first_name: "", last_name: "", email: "", password: "" });
   const [err, setErr] = useState("");
   const [done, setDone] = useState(false);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
@@ -79,14 +79,15 @@ export function Register() {
   if (done)
     return (
       <Shell title="Confirme seu e-mail">
-        <p>Enviamos um link de confirmação para <strong>{f.email}</strong>. Abra o e-mail e clique no link para ativar a conta.</p>
+        <p>Enviamos um link de confirmação para <strong>{f.email}</strong>. Abra o e-mail e clique no link para ativar a conta da <strong>{f.company_name}</strong>. Você será o administrador e poderá convidar sua equipe.</p>
         <p className="alt"><Link to="/login">Ir para o login</Link></p>
       </Shell>
     );
   return (
-    <Shell title="Criar conta">
+    <Shell title="Criar conta da empresa">
       <form onSubmit={submit}>
-        <label>Nome<input value={f.first_name} onChange={set("first_name")} required /></label>
+        <label>Nome da empresa<input value={f.company_name} onChange={set("company_name")} required autoFocus /></label>
+        <label>Seu nome<input value={f.first_name} onChange={set("first_name")} required /></label>
         <label>Sobrenome<input value={f.last_name} onChange={set("last_name")} /></label>
         <label>E-mail<input type="email" value={f.email} onChange={set("email")} required /></label>
         <label>Senha<input type="password" value={f.password} onChange={set("password")} required minLength={8} /></label>

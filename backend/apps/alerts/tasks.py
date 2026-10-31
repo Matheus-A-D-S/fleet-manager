@@ -14,7 +14,9 @@ def send_alert_email(alert_id):
         return
     recipients = list(
         get_user_model()
-        .objects.filter(is_active=True, is_email_verified=True, role__in=["ADMIN", "MANAGER"])
+        .objects.filter(
+            organization_id=alert.organization_id, is_active=True, is_email_verified=True, role__in=["ADMIN", "MANAGER"]
+        )
         .values_list("email", flat=True)
     )
     if not recipients:

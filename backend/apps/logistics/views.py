@@ -3,19 +3,19 @@ from datetime import timedelta
 from django.db import transaction
 from django.db.models import Count
 from django.utils import timezone
-from rest_framework import mixins, status, viewsets
+from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.permissions import IsManager, IsManagerOrReadOnly
+from apps.accounts.permissions import IsManager, IsManagerOrReadOnly, IsTenantMember
 from apps.alerts import services as alert_services
 from apps.alerts.models import Alert
 from apps.audit.mixins import AuditedMixin
 from apps.audit.models import AuditLog
 from apps.audit.services import record
+from apps.core.tenancy import TenantQuerysetMixin
 from apps.fleet.models import Driver, Vehicle
 
 from . import realtime
@@ -23,7 +23,8 @@ from .models import LocationPing, Trip
 from .serializers import LocationPingSerializer, TripSerializer
 
 
-class TripViewSet(AuditedMixin, viewsets.ModelViewSet):
+class TripViewSet(TenantQuerysetMixin, AuditedMixin, viewsets.ModelViewSet):
+    queryset = Trip.objects.select_related("vehicle", "driver")
     serializer_class = TripSerializer
     permission_classes = [IsManagerOrReadOnly]
     filterset_fields = ["status", "vehicle", "driver"]
@@ -31,20 +32,20 @@ class TripViewSet(AuditedMixin, viewsets.ModelViewSet):
     ordering_fields = ["scheduled_start", "scheduled_arrival", "created_at"]
 
     def get_queryset(self):
-        qs = Trip.objects.select_related("vehicle", "driver")
-        if getattr(self, "swagger_fake_view", False):  # geração do schema OpenAPI
-            return qs.none()
+        qs = super().get_queryset()  # já restrito à empresa do usuário
         user = self.request.user
         # Motorista só enxerga as próprias viagens.
-        return qs.filter(driver__user=user) if user.role == "DRIVER" else qs
+        if getattr(self, "swagger_fake_view", False) or user.role != "DRIVER":
+            return qs
+        return qs.filter(driver__user=user)
 
     def get_permissions(self):
         if self.action in ("start", "complete"):
-            return [IsAuthenticated()]  # motorista dono da viagem ou gestor (queryset já restringe)
+            return [IsTenantMember()]  # motorista dono da viagem ou gestor (o queryset já restringe)
         return super().get_permissions()
 
     def get_create_kwargs(self):
-        return {"created_by": self.request.user}
+        return {**super().get_create_kwargs(), "created_by": self.request.user}
 
     @transaction.atomic
     def _transition(self, request, allowed_from, new_status, vehicle_status, **extra):
@@ -93,18 +94,18 @@ class TripViewSet(AuditedMixin, viewsets.ModelViewSet):
         return Response(list(pings))
 
 
-class PingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class PingViewSet(TenantQuerysetMixin, mixins.CreateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     queryset = LocationPing.objects.select_related("vehicle", "trip")
     serializer_class = LocationPingSerializer
     filterset_fields = ["vehicle", "trip"]
     ordering_fields = ["recorded_at"]
 
     def get_permissions(self):
-        return [IsAuthenticated()] if self.action == "create" else [IsManager()]
+        return [IsTenantMember()] if self.action == "create" else [IsManager()]
 
     def perform_create(self, serializer):
         user = self.request.user
-        vehicle = serializer.validated_data["vehicle"]
+        vehicle = serializer.validated_data["vehicle"]  # o serializer só aceita veículos da empresa do usuário
         trip = serializer.validated_data.get("trip")
 
         if user.role == "DRIVER":
@@ -115,20 +116,20 @@ class PingViewSet(mixins.CreateModelMixin, mixins.ListModelMixin, viewsets.Gener
         elif trip and trip.vehicle_id != vehicle.id:
             raise ValidationError({"trip": "A viagem não pertence a este veículo."})
 
-        ping = serializer.save(trip=trip)
+        ping = serializer.save(trip=trip, organization_id=vehicle.organization_id)
         alert_services.check_speeding(ping)
         realtime.publish_position(ping)
 
 
 class LiveFleetView(APIView):
-    """Última posição conhecida de cada veículo (últimas 24h)."""
+    """Última posição conhecida de cada veículo da empresa (últimas 24h)."""
 
     permission_classes = [IsManager]
 
     def get(self, request):
         since = timezone.now() - timedelta(hours=24)
         pings = (
-            LocationPing.objects.filter(recorded_at__gte=since)
+            LocationPing.objects.filter(organization_id=request.user.organization_id, recorded_at__gte=since)
             .select_related("vehicle", "trip")
             .order_by("vehicle_id", "-recorded_at")
             .distinct("vehicle_id")  # DISTINCT ON do PostgreSQL
@@ -138,15 +139,18 @@ class LiveFleetView(APIView):
 
 class DashboardView(APIView):
     def get(self, request):
+        org = request.user.organization_id
+
         def counts(qs):
             return {row["status"]: row["n"] for row in qs.values("status").annotate(n=Count("id"))}
 
         data = {
-            "vehicles": counts(Vehicle.objects.all()),
-            "trips": counts(Trip.objects.all()),
-            "drivers_active": Driver.objects.filter(is_active=True).count(),
+            "vehicles": counts(Vehicle.objects.filter(organization_id=org)),
+            "trips": counts(Trip.objects.filter(organization_id=org)),
+            "drivers_active": Driver.objects.filter(organization_id=org, is_active=True).count(),
         }
         if request.user.role in ("ADMIN", "MANAGER"):
-            data["open_alerts"] = Alert.objects.filter(resolved=False).count()
-            data["critical_alerts"] = Alert.objects.filter(resolved=False, severity=Alert.Severity.CRITICAL).count()
-        return Response(data, status=status.HTTP_200_OK)
+            open_alerts = Alert.objects.filter(organization_id=org, resolved=False)
+            data["open_alerts"] = open_alerts.count()
+            data["critical_alerts"] = open_alerts.filter(severity=Alert.Severity.CRITICAL).count()
+        return Response(data)

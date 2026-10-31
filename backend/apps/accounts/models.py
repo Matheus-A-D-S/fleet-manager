@@ -1,5 +1,33 @@
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
+from django.utils.text import slugify
+
+
+class OrganizationManager(models.Manager):
+    def create_with_unique_slug(self, name):
+        name = name.strip()
+        base = slugify(name)[:40] or "empresa"
+        slug, n = base, 1
+        while self.filter(slug=slug).exists():
+            n += 1
+            slug = f"{base}-{n}"
+        return self.create(name=name, slug=slug)
+
+
+class Organization(models.Model):
+    """Empresa-cliente (tenant). Todos os dados de negócio pertencem a uma."""
+
+    name = models.CharField("nome", max_length=120)
+    slug = models.SlugField(max_length=50, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = OrganizationManager()
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
 
 
 class UserManager(BaseUserManager):
@@ -9,7 +37,7 @@ class UserManager(BaseUserManager):
         if not email:
             raise ValueError("O e-mail é obrigatório.")
         user = self.model(email=self.normalize_email(email).lower(), **extra)
-        user.set_password(password)
+        user.set_password(password)  # password=None gera senha inutilizável (usuário convidado)
         user.save(using=self._db)
         return user
 
@@ -19,6 +47,7 @@ class UserManager(BaseUserManager):
         return self._create_user(email, password, **extra)
 
     def create_superuser(self, email, password=None, **extra):
+        # Superusuário é da plataforma (acessa só o /admin) e não pertence a nenhuma empresa.
         extra.update(is_staff=True, is_superuser=True, role=User.Role.ADMIN, is_email_verified=True)
         return self._create_user(email, password, **extra)
 
@@ -31,6 +60,9 @@ class User(AbstractUser):
 
     username = None
     email = models.EmailField(unique=True)
+    organization = models.ForeignKey(
+        Organization, null=True, blank=True, on_delete=models.PROTECT, related_name="users"
+    )
     role = models.CharField(max_length=10, choices=Role.choices, default=Role.DRIVER)
     is_email_verified = models.BooleanField(default=False)
 

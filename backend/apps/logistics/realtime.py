@@ -5,7 +5,11 @@ from channels.layers import get_channel_layer
 
 logger = logging.getLogger(__name__)
 
-FLEET_GROUP = "fleet"
+
+
+def fleet_group(organization_id):
+    """Cada empresa tem o seu grupo: gestores só recebem posições da própria frota."""
+    return f"fleet-{organization_id}"
 
 
 def live_payload(ping):
@@ -29,6 +33,6 @@ def publish_position(ping):
     try:
         layer = get_channel_layer()
         if layer is not None:
-            async_to_sync(layer.group_send)(FLEET_GROUP, {"type": "fleet.position", "payload": live_payload(ping)})
+            async_to_sync(layer.group_send)(fleet_group(ping.organization_id), {"type": "fleet.position", "payload": live_payload(ping)})
     except Exception:
         logger.warning("Falha ao publicar posição em tempo real", exc_info=True)

@@ -37,3 +37,13 @@ def test_deleting_vehicle_with_trips_returns_409(manager_client, active_trip):
 def test_dashboard_hides_alert_counters_from_drivers(driver_client, manager_client):
     assert "open_alerts" not in driver_client.get("/api/logistics/dashboard/").data
     assert "open_alerts" in manager_client.get("/api/logistics/dashboard/").data
+
+
+def test_platform_superuser_without_company_has_no_tenant_access(api):
+    from apps.accounts.models import User
+    from conftest import client_for
+
+    root = client_for(User.objects.create_superuser(email="root@test.com", password="x"))
+    assert root.get("/api/fleet/vehicles/").status_code == 403
+    assert root.get("/api/logistics/dashboard/").status_code == 403
+    assert root.get("/api/auth/me/").status_code == 200  # ainda consulta o próprio perfil

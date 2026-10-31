@@ -4,13 +4,14 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.accounts.permissions import IsManager
+from apps.core.tenancy import TenantQuerysetMixin
 
 from .models import Alert
 from .serializers import AlertSerializer
 from .tasks import scan_fleet_task
 
 
-class AlertViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class AlertViewSet(TenantQuerysetMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     queryset = Alert.objects.select_related("vehicle")
     serializer_class = AlertSerializer
     permission_classes = [IsManager]

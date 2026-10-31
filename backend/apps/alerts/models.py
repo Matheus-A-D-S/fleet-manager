@@ -13,6 +13,7 @@ class Alert(models.Model):
         WARNING = "WARNING", "Atenção"
         CRITICAL = "CRITICAL", "Crítico"
 
+    organization = models.ForeignKey("accounts.Organization", on_delete=models.PROTECT, related_name="alerts")
     kind = models.CharField(max_length=12, choices=Kind.choices, db_index=True)
     severity = models.CharField(max_length=10, choices=Severity.choices, default=Severity.WARNING)
     title = models.CharField(max_length=160)

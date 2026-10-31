@@ -30,3 +30,15 @@ Registro curto das escolhas e dos trade-offs.
 
 ## ADR-007 — Health checks separados
 `/api/health/` (liveness, sem dependências) e `/api/health/ready/` (PostgreSQL + Redis). Assim o orquestrador não reinicia o container só porque uma dependência caiu.
+
+## ADR-008 — Multi-empresa com banco único e `organization_id`
+**Decisão:** esquema compartilhado, uma coluna `organization` em todas as tabelas de negócio, isolamento na camada da API (queryset, escrita e relações) e grupos de WebSocket por empresa.
+**Por quê:** é o modelo com melhor custo/benefício para começar (uma migração, um pool de conexões, onboarding instantâneo) e é o usado pela maioria dos SaaS B2B.
+**Trade-offs:** um erro de código pode vazar dados entre empresas, por isso o isolamento é central e testado (`test_tenancy.py`). Passo seguinte natural: *row-level security* no PostgreSQL como segunda barreira. Alternativas descartadas: um schema ou banco por empresa (isolamento mais forte, porém operação e migrações bem mais caras).
+**Detalhes:** objeto de outra empresa responde 404; chaves estrangeiras usam `PROTECT` (uma empresa com dados não pode ser apagada por engano); placa e CNH são únicas *por empresa*.
+**Limitação conhecida:** o e-mail é único na plataforma, então cada pessoa pertence a uma empresa. Atender consultores em várias empresas exigiria um modelo de *memberships*.
+
+## ADR-009 — Convite por e-mail em vez de senha criada pelo administrador
+**Decisão:** o administrador cadastra nome, e-mail e perfil; o usuário nasce com senha inutilizável e recebe um link para definir a própria senha (mesmo mecanismo, com token de uso único, da redefinição de senha).
+**Por quê:** ninguém além do próprio usuário conhece a senha, e definir a senha comprova o controle do e-mail.
+**Salvaguardas:** o administrador não pode alterar o próprio perfil nem se desativar (a empresa nunca fica sem administrador); usuários são desativados, não excluídos, preservando a trilha de auditoria; a auditoria de usuários registra só campos explícitos, nunca o hash da senha.

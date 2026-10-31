@@ -32,8 +32,12 @@ function toPayload(fields, values) {
   return out;
 }
 
-export default function ResourcePage({ title, noun, endpoint, columns, fields, rowActions = [], tone, searchable = true, createLabel }) {
+export default function ResourcePage({
+  title, noun, endpoint, columns, fields, rowActions = [], tone, searchable = true, createLabel,
+  canWrite, allowDelete = true,
+}) {
   const { isManager } = useAuth();
+  const writable = canWrite ?? isManager;
   const [rows, setRows] = useState(null);
   const [q, setQ] = useState("");
   const [err, setErr] = useState("");
@@ -58,7 +62,7 @@ export default function ResourcePage({ title, noun, endpoint, columns, fields, r
   }, [load, q]);
 
   useEffect(() => {
-    if (!isManager) return;
+    if (!writable) return;
     fields
       .filter((f) => f.optionsFrom)
       .forEach((f) =>
@@ -67,7 +71,7 @@ export default function ResourcePage({ title, noun, endpoint, columns, fields, r
           .then((r) => setOpts((o) => ({ ...o, [f.name]: unwrap(r) })))
           .catch(() => {})
       );
-  }, [isManager, fields]);
+  }, [writable, fields]);
 
   const openForm = (row) => {
     setValues(initialValues(fields, row));
@@ -77,7 +81,7 @@ export default function ResourcePage({ title, noun, endpoint, columns, fields, r
 
   const save = async (e) => {
     e.preventDefault();
-    const payload = toPayload(fields, values);
+    const payload = toPayload(formFields, values);
     try {
       if (editing.row) await api.patch(`${endpoint}${editing.row.id}/`, payload);
       else await api.post(endpoint, payload);
@@ -107,20 +111,22 @@ export default function ResourcePage({ title, noun, endpoint, columns, fields, r
     }
   };
 
+  const formFields = fields.filter((f) => !(f.createOnly && editing?.row));
+
   return (
     <>
       <header className="page-head">
         <h1>{title}</h1>
         <div className="tools">
           {searchable && <input type="search" placeholder="Buscar" value={q} onChange={(e) => setQ(e.target.value)} />}
-          {isManager && <button className="primary" onClick={() => openForm(null)}>{createLabel || `Novo ${noun}`}</button>}
+          {writable && <button className="primary" onClick={() => openForm(null)}>{createLabel || `Novo ${noun}`}</button>}
         </div>
       </header>
       {err && <p className="msg bad">{err}</p>}
       {!rows ? (
         <p className="boot">Carregando…</p>
       ) : rows.length === 0 ? (
-        <p className="empty">Nenhum registro ainda.{isManager ? ` Use “${createLabel || `Novo ${noun}`}” para começar.` : ""}</p>
+        <p className="empty">Nenhum registro ainda.{writable ? ` Use “${createLabel || `Novo ${noun}`}” para começar.` : ""}</p>
       ) : (
         <div className="table-wrap">
           <table>
@@ -138,8 +144,8 @@ export default function ResourcePage({ title, noun, endpoint, columns, fields, r
                     {rowActions.filter((a) => a.when(row) && (!a.managerOnly || isManager)).map((a) => (
                       <button key={a.path} className="link" onClick={() => runAction(row, a)}>{a.label}</button>
                     ))}
-                    {isManager && <button className="link" onClick={() => openForm(row)}>Editar</button>}
-                    {isManager && <button className="link danger" onClick={() => remove(row)}>Excluir</button>}
+                    {writable && <button className="link" onClick={() => openForm(row)}>Editar</button>}
+                    {writable && allowDelete && <button className="link danger" onClick={() => remove(row)}>Excluir</button>}
                   </td>
                 </tr>
               ))}
@@ -153,7 +159,7 @@ export default function ResourcePage({ title, noun, endpoint, columns, fields, r
           <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
             <h2>{editing.row ? `Editar ${noun}` : `Novo ${noun}`}</h2>
             <div className="fields">
-              {fields.map((f) => (
+              {formFields.map((f) => (
                 <label key={f.name} className={f.wide ? "wide" : ""}>
                   {f.label}
                   {f.type === "textarea" ? (

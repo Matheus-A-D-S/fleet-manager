@@ -11,6 +11,7 @@ class AuditLog(models.Model):
         DELETE = "DELETE", "Exclusão"
         ACTION = "ACTION", "Ação"
 
+    organization = models.ForeignKey("accounts.Organization", null=True, blank=True, on_delete=models.PROTECT, related_name="+")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     user_email = models.CharField(max_length=254, blank=True)  # mantém a identificação mesmo se o usuário for apagado
     action = models.CharField(max_length=8, choices=Action.choices)

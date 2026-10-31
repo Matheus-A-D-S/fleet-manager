@@ -1,4 +1,5 @@
 import ResourcePage from "./ResourcePage.jsx";
+import { useAuth } from "../auth.jsx";
 import { LICENSE_CATEGORIES, TONE, TRIP_STATUS, VEHICLE_STATUS, VEHICLE_TYPES, brl, fmtDate, fmtDateTime, isPast } from "../constants.js";
 
 const vehicleFields = [
@@ -130,3 +131,36 @@ export const Maintenance = () => (
     ]}
   />
 );
+
+const ROLES = [["ADMIN", "Administrador"], ["MANAGER", "Gestor"], ["DRIVER", "Motorista"]];
+
+const userFields = [
+  { name: "email", label: "E-mail", type: "email", required: true, createOnly: true, wide: true },
+  { name: "first_name", label: "Nome", required: true },
+  { name: "last_name", label: "Sobrenome" },
+  { name: "role", label: "Perfil", type: "select", choices: ROLES },
+  { name: "is_active", label: "Ativo", type: "checkbox", default: true },
+];
+
+export const Users = () => {
+  const { user } = useAuth();
+  return (
+    <ResourcePage
+      title="Equipe"
+      noun="usuário"
+      createLabel="Convidar usuário"
+      endpoint="/auth/users/"
+      fields={userFields}
+      canWrite={user.role === "ADMIN"}
+      allowDelete={false}
+      tone={(r) => (!r.is_active ? "idle" : r.is_email_verified ? "ok" : "warn")}
+      rowActions={[{ label: "Reenviar convite", path: "resend-invite", managerOnly: true, when: (r) => r.is_active && !r.is_email_verified }]}
+      columns={[
+        { label: "Nome", render: (r) => [r.first_name, r.last_name].filter(Boolean).join(" ") || "—" },
+        { label: "E-mail", key: "email" },
+        { label: "Perfil", key: "role_display" },
+        { label: "Situação", render: (r) => (!r.is_active ? "Desativado" : r.is_email_verified ? "Ativo" : "Convite pendente") },
+      ]}
+    />
+  );
+};

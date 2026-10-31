@@ -9,10 +9,11 @@ def ping(vehicle, **override):
     return {"vehicle": vehicle.id, "latitude": -8.76, "longitude": -63.9, "speed_kmh": 60, **override}
 
 
-def test_driver_reports_position_for_own_active_trip(driver_client, active_trip, vehicle):
+def test_driver_reports_position_for_own_active_trip(driver_client, org, active_trip, vehicle):
     response = driver_client.post("/api/logistics/pings/", ping(vehicle), format="json")
     assert response.status_code == 201
-    assert LocationPing.objects.get().trip == active_trip  # vínculo definido pelo servidor
+    saved = LocationPing.objects.get()
+    assert saved.trip == active_trip and saved.organization == org  # vínculos definidos pelo servidor
 
 
 def test_driver_cannot_report_for_vehicle_without_active_trip(driver_client, vehicle):
@@ -25,10 +26,10 @@ def test_ping_validation(manager_client, vehicle):
     assert manager_client.post("/api/logistics/pings/", ping(vehicle, speed_kmh=999), format="json").status_code == 400
 
 
-def test_trip_must_belong_to_vehicle(manager_client, active_trip):
+def test_trip_must_belong_to_vehicle(manager_client, org, active_trip):
     from apps.fleet.models import Vehicle
 
-    other = Vehicle.objects.create(plate="OUT1B23", brand="VW", model="Delivery", year=2021)
+    other = Vehicle.objects.create(organization=org, plate="OUT1B23", brand="VW", model="Delivery", year=2021)
     response = manager_client.post("/api/logistics/pings/", ping(other, trip=active_trip.id), format="json")
     assert response.status_code == 400
 

@@ -30,6 +30,7 @@ def _client_ip(request):
 def record(request, action, instance, changes=None, *, object_id=None, object_repr=None):
     user = request.user if request.user.is_authenticated else None
     return AuditLog.objects.create(
+        organization_id=getattr(user, "organization_id", None),
         user=user,
         user_email=getattr(user, "email", ""),
         action=action,

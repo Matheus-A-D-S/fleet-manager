@@ -1,32 +1,26 @@
-from urllib.parse import parse_qs, urlparse
-
 import pytest
 from django.core import mail
 
-from apps.accounts.models import User
-from conftest import PASSWORD
+from apps.accounts.models import Organization, User
+from conftest import PASSWORD, link_params
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
 
-def _link_params(body, marker):
-    link = next(line for line in body.splitlines() if marker in line)
-    return {k: v[0] for k, v in parse_qs(urlparse(link).query).items()}
-
-
 def test_register_verify_and_login_flow(api):
-    data = {"email": "novo@test.com", "password": PASSWORD, "first_name": "Novo"}
+    data = {"email": "novo@test.com", "password": PASSWORD, "first_name": "Novo", "company_name": "Nova Frota Ltda"}
     assert api.post("/api/auth/register/", data, format="json").status_code == 201
 
     user = User.objects.get(email="novo@test.com")
-    assert user.role == "DRIVER" and not user.is_email_verified  # cadastro público nunca vira gestor
+    assert not user.is_email_verified
+    assert user.role == "ADMIN" and user.organization.name == "Nova Frota Ltda"  # cria a empresa e o 1º admin
     assert len(mail.outbox) == 1
 
     # sem confirmar o e-mail, o login é bloqueado
     login = {"email": "novo@test.com", "password": PASSWORD}
     assert api.post("/api/auth/login/", login, format="json").status_code == 403
 
-    token = _link_params(mail.outbox[0].body, "verify-email")["token"]
+    token = link_params(mail.outbox[0].body, "verify-email")["token"]
     assert api.post("/api/auth/verify-email/", {"token": token}, format="json").status_code == 200
     assert api.post("/api/auth/verify-email/", {"token": token}, format="json").status_code == 200  # idempotente
 
@@ -36,9 +30,9 @@ def test_register_verify_and_login_flow(api):
 
 
 def test_register_rejects_weak_password_and_duplicate_email(api, manager):
-    weak = {"email": "x@test.com", "password": "123", "first_name": "X"}
+    weak = {"email": "x@test.com", "password": "123", "first_name": "X", "company_name": "X"}
     assert api.post("/api/auth/register/", weak, format="json").status_code == 400
-    dup = {"email": manager.email, "password": PASSWORD, "first_name": "X"}
+    dup = {"email": manager.email, "password": PASSWORD, "first_name": "X", "company_name": "X"}
     assert api.post("/api/auth/register/", dup, format="json").status_code == 400
 
 
@@ -53,7 +47,7 @@ def test_wrong_password_returns_401(api, manager):
 
 def test_password_reset_flow(api, manager):
     assert api.post("/api/auth/password-reset/", {"email": manager.email}, format="json").status_code == 200
-    params = _link_params(mail.outbox[0].body, "reset-password")
+    params = link_params(mail.outbox[0].body, "reset-password")
 
     payload = {**params, "password": "NovaSenha@2026"}
     assert api.post("/api/auth/password-reset/confirm/", payload, format="json").status_code == 200
@@ -83,3 +77,16 @@ def test_unverified_users_never_get_tokens(api):
     response = api.post("/api/auth/login/", {"email": "pendente@test.com", "password": PASSWORD}, format="json")
     assert response.status_code == 403
     assert "access" not in response.data
+
+
+def test_registration_requires_company_name(api):
+    response = api.post("/api/auth/register/", {"email": "x@test.com", "password": PASSWORD, "first_name": "X"}, format="json")
+    assert response.status_code == 400 and "company_name" in response.data
+
+
+def test_companies_with_the_same_name_get_distinct_slugs(api):
+    for email in ("a@test.com", "b@test.com"):
+        data = {"email": email, "password": PASSWORD, "first_name": "X", "company_name": "Frota Norte"}
+        assert api.post("/api/auth/register/", data, format="json").status_code == 201
+    slugs = sorted(Organization.objects.values_list("slug", flat=True))
+    assert slugs == ["frota-norte", "frota-norte-2"]

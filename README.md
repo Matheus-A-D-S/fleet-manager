@@ -1,6 +1,8 @@
 # FleetTrack — gestão de frota e rastreamento logístico
 
-Plataforma web para acompanhar veículos, motoristas e viagens em tempo real, com alertas por e-mail e trilha de auditoria.
+[![CI](https://github.com/Matheus-A-D-S/fleet-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheus-A-D-S/fleet-manager/actions/workflows/ci.yml)
+
+Plataforma **multi-empresa (SaaS)** para acompanhar veículos, motoristas e viagens em tempo real, com alertas por e-mail e trilha de auditoria. Cada empresa enxerga apenas os próprios dados.
 
 | Camada | Tecnologia |
 |---|---|
@@ -21,7 +23,9 @@ Arquitetura e diagramas: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Decis
 - **Rastreamento:** GPS enviado pelo motorista ou por rastreador; mapa **ao vivo via WebSocket** (com fallback para polling) e trajeto da viagem.
 - **Alertas por e-mail:** excesso de velocidade, manutenção (data ou km), documentos vencendo, viagem atrasada; sem e-mails repetidos.
 - **Auditoria:** quem criou, alterou (campo a campo) ou excluiu o quê, com IP e id de correlação.
-- **Perfis:** admin, gestor e motorista (o motorista só vê e opera as próprias viagens).
+- **Multi-empresa:** cada empresa tem seus usuários, frota, viagens, alertas e auditoria isolados; o mapa em tempo real e os e-mails também são separados por empresa.
+- **Equipe:** o administrador convida usuários por e-mail (o convidado define a própria senha), altera perfis e desativa acessos.
+- **Perfis:** administrador, gestor e motorista (o motorista só vê e opera as próprias viagens).
 
 ## Como rodar
 
@@ -38,7 +42,15 @@ docker compose exec backend python manage.py simulate_gps --speeding   # GPS sim
 | Admin Django | http://localhost:8000/admin/ |
 | Caixa de e-mail (MailHog) | http://localhost:8025 |
 
-Logins de demonstração (somente dev): `gestor@fleet.local / Gestor@12345` e `motorista@fleet.local / Motorista@12345`.
+O `seed_demo` cria **duas empresas** para você ver o isolamento (somente dev):
+
+| Empresa | Login | Senha |
+|---|---|---|
+| Transportes Alfa (administrador) | `gestor@alfa.local` | `Gestor@12345` |
+| Transportes Alfa (motorista) | `motorista@alfa.local` | `Motorista@12345` |
+| Logística Beta (administrador) | `gestor@beta.local` | `Gestor@12345` |
+
+Entre com cada gestor em uma janela anônima: cada um vê só a própria frota. Contas novas criadas em **Criar conta** nascem como administradoras de uma empresa nova.
 
 Abra **Mapa ao vivo** com o `simulate_gps` rodando: o veículo se move sozinho e, com `--speeding`, gera alertas de velocidade (e e-mails no MailHog).
 
@@ -53,7 +65,7 @@ docker compose exec backend pytest --cov --cov-report=term-missing
 docker compose exec backend ruff check .
 ```
 
-A suíte cobre autenticação (cadastro, verificação, reset, logout), permissões por perfil, ciclo da viagem, GPS, regras de alerta e deduplicação, auditoria, health checks e o WebSocket. A CI roda lint, verificação de migrações, testes (com PostgreSQL real) e o build das imagens a cada push.
+A suíte cobre autenticação (cadastro com empresa, verificação, reset, logout), permissões por perfil, **isolamento entre empresas** (dados, relações, alertas, e-mails, auditoria e WebSocket), convites de usuários, ciclo da viagem, GPS, regras de alerta e deduplicação, auditoria e health checks. A CI roda lint, verificação de migrações, testes (com PostgreSQL real) e o build das imagens a cada push.
 
 Para formatar o código uma vez e ativar os hooks: `pip install pre-commit && pre-commit install && pre-commit run --all-files`.
 
@@ -68,12 +80,12 @@ Nginx serve o React e faz proxy de `/api`, `/admin` e `/ws`; o backend roda em D
 
 ## Endpoints principais
 
-`/api/auth/…` · `/api/fleet/{vehicles,drivers,maintenance}/` · `/api/logistics/trips/` (+ `start`, `complete`, `cancel`, `track`) · `/api/logistics/{pings,live,dashboard}/` · `/api/alerts/` (+ `resolve`, `scan`) · `/api/audit/` · `ws://…/ws/fleet/?token=<access>`
+`/api/auth/…` (incl. `users/` e `users/{id}/resend-invite/`) · `/api/fleet/{vehicles,drivers,maintenance}/` · `/api/logistics/trips/` (+ `start`, `complete`, `cancel`, `track`) · `/api/logistics/{pings,live,dashboard}/` · `/api/alerts/` (+ `resolve`, `scan`) · `/api/audit/` · `ws://…/ws/fleet/?token=<access>`
 
 ## Estrutura
 
 ```
-backend/   Django (apps: accounts, fleet, logistics, alerts, audit, core) + tests/
+backend/   Django (apps: accounts [empresas e usuários], fleet, logistics, alerts, audit, core) + tests/
 frontend/  React + Vite (+ Dockerfile.prod e nginx.conf)
 docs/      arquitetura e decisões
 .github/   CI
@@ -81,4 +93,4 @@ docs/      arquitetura e decisões
 
 ## Roadmap
 
-Multi-empresa (multi-tenant), cercas geográficas com PostGIS, PWA do motorista, rastreio público para o cliente final, custos de combustível/manutenção, métricas Prometheus.
+Cercas geográficas com PostGIS, planos/limites por empresa, 2FA, row-level security no PostgreSQL, PWA do motorista, rastreio público para o cliente final, custos de combustível/manutenção, métricas Prometheus.

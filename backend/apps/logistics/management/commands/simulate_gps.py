@@ -42,7 +42,8 @@ class Command(BaseCommand):
                     if opts["speeding"] and step % 15 == 0:
                         speed = random.uniform(100, 115)
                     ping = LocationPing.objects.create(
-                        vehicle=trip.vehicle, trip=trip, latitude=lat, longitude=lng, speed_kmh=round(speed, 1), heading=135
+                        organization_id=trip.organization_id, vehicle=trip.vehicle, trip=trip,
+                        latitude=lat, longitude=lng, speed_kmh=round(speed, 1), heading=135
                     )
                     alert_services.check_speeding(ping)
                     realtime.publish_position(ping)

@@ -14,6 +14,7 @@ class Trip(models.Model):
         COMPLETED = "COMPLETED", "Concluída"
         CANCELLED = "CANCELLED", "Cancelada"
 
+    organization = models.ForeignKey("accounts.Organization", on_delete=models.PROTECT, related_name="trips")
     code = models.CharField(max_length=24, unique=True, editable=False)
     vehicle = models.ForeignKey(Vehicle, on_delete=models.PROTECT, related_name="trips")
     driver = models.ForeignKey(Driver, on_delete=models.PROTECT, related_name="trips")
@@ -51,6 +52,7 @@ class Trip(models.Model):
 class LocationPing(models.Model):
     """Ponto de rastreamento (GPS) enviado pelo app do motorista ou por um rastreador."""
 
+    organization = models.ForeignKey("accounts.Organization", on_delete=models.PROTECT, related_name="pings")
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="pings")
     trip = models.ForeignKey(Trip, null=True, blank=True, on_delete=models.SET_NULL, related_name="pings")
     latitude = models.FloatField()

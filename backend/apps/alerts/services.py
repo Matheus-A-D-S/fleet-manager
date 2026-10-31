@@ -14,9 +14,13 @@ def raise_alert(*, kind, severity, title, message, dedupe_key, vehicle=None, dri
     """Cria o alerta se a chave ainda não existir (aberto ou resolvido); e-mail só na criação."""
     from .tasks import send_alert_email
 
+    owner = vehicle or driver or trip  # o alerta herda a empresa do objeto que o originou
     alert, created = Alert.objects.get_or_create(
         dedupe_key=dedupe_key,
-        defaults=dict(kind=kind, severity=severity, title=title, message=message, vehicle=vehicle, driver=driver, trip=trip),
+        defaults=dict(
+            organization_id=owner.organization_id, kind=kind, severity=severity, title=title,
+            message=message, vehicle=vehicle, driver=driver, trip=trip,
+        ),
     )
     if created:
         transaction.on_commit(lambda: send_alert_email.delay(alert.pk))

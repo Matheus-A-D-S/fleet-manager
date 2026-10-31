@@ -15,7 +15,8 @@ class Vehicle(models.Model):
         MAINTENANCE = "MAINTENANCE", "Em manutenção"
         INACTIVE = "INACTIVE", "Inativo"
 
-    plate = models.CharField("placa", max_length=10, unique=True)
+    organization = models.ForeignKey("accounts.Organization", on_delete=models.PROTECT, related_name="vehicles")
+    plate = models.CharField("placa", max_length=10)
     brand = models.CharField("marca", max_length=60)
     model = models.CharField("modelo", max_length=60)
     year = models.PositiveSmallIntegerField("ano")
@@ -32,6 +33,7 @@ class Vehicle(models.Model):
 
     class Meta:
         ordering = ["plate"]
+        constraints = [models.UniqueConstraint(fields=["organization", "plate"], name="uniq_vehicle_plate_per_org")]
 
     def save(self, *args, **kwargs):
         self.plate = self.plate.upper().replace("-", "").strip()
@@ -49,11 +51,12 @@ class Driver(models.Model):
         D = "D", "D"
         E = "E", "E"
 
+    organization = models.ForeignKey("accounts.Organization", on_delete=models.PROTECT, related_name="drivers")
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="driver_profile"
     )
     full_name = models.CharField("nome completo", max_length=120)
-    license_number = models.CharField("CNH", max_length=20, unique=True)
+    license_number = models.CharField("CNH", max_length=20)
     license_category = models.CharField(max_length=2, choices=Category.choices, default=Category.C)
     license_expiry = models.DateField("validade da CNH")
     phone = models.CharField(max_length=20, blank=True)
@@ -62,6 +65,7 @@ class Driver(models.Model):
 
     class Meta:
         ordering = ["full_name"]
+        constraints = [models.UniqueConstraint(fields=["organization", "license_number"], name="uniq_driver_license_per_org")]
 
     def __str__(self):
         return self.full_name
@@ -72,6 +76,7 @@ class MaintenanceRecord(models.Model):
         PREVENTIVE = "PREVENTIVE", "Preventiva"
         CORRECTIVE = "CORRECTIVE", "Corretiva"
 
+    organization = models.ForeignKey("accounts.Organization", on_delete=models.PROTECT, related_name="maintenance_records")
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="maintenance_records")
     kind = models.CharField(max_length=12, choices=Kind.choices, default=Kind.PREVENTIVE)
     description = models.TextField()
